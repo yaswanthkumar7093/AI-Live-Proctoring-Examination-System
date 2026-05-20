@@ -178,6 +178,8 @@ export const getAlerts = async (req, res, next) => {
         created_at,
         exam_sessions (
           id,
+          status,
+          completed_at,
           users (id, name, email),
           exams (id, title)
         ),
@@ -195,9 +197,22 @@ export const getAlerts = async (req, res, next) => {
       throw error;
     }
 
+    // Filter out alerts where the session has been completed for more than 30 minutes
+    const now = new Date();
+    const activeAlerts = alerts.filter(alert => {
+      const session = alert.exam_sessions;
+      if (session && session.status === 'completed' && session.completed_at) {
+        const completedTime = new Date(session.completed_at);
+        const diffMs = now.getTime() - completedTime.getTime();
+        const diffMinutes = diffMs / (1000 * 60);
+        return diffMinutes <= 30; // Only keep alerts if exam completed within the last 30 minutes
+      }
+      return true; // Keep alerts for active/in-progress sessions
+    });
+
     return res.status(200).json({
       success: true,
-      data: alerts,
+      data: activeAlerts,
     });
   } catch (error) {
     next(error);
