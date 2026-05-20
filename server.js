@@ -1,10 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import authRoutes from './routes/authRoutes.js';
 import examRoutes from './routes/examRoutes.js';
 import proctorRoutes from './routes/proctorRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
+
+// Resolve __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
@@ -21,8 +27,11 @@ app.use(cors({
 // Body parsing middleware
 app.use(express.json());
 
-// API Health Check
-app.get('/', (req, res) => {
+// Serve static frontend files from the "public" directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// API Health Check (moved to /api/health)
+app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'AI Live Proctoring Backend Server is running.',

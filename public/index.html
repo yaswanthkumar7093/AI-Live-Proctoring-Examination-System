@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Live Proctoring Examination System - Portal</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22 width=%22100%22 height=%22100%22><text y=%220.9em%22 font-size=%2290%22>🛡️</text></svg>">
+</head>
+<body>
+
+  <div class="auth-container">
+    <div class="auth-card glass-panel">
+      
+      <div class="auth-header">
+        <h1>ProctorShield AI</h1>
+        <p>AI Live Proctoring Examination System</p>
+      </div>
+
+      <div class="auth-toggle">
+        <button id="toggle-login" class="active" onclick="switchTab('login')">Sign In</button>
+        <button id="toggle-register" onclick="switchTab('register')">Register</button>
+      </div>
+
+      <!-- Alert Notification Area -->
+      <div id="auth-alert" style="display: none;"></div>
+
+      <!-- Login Form -->
+      <form id="login-form" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label for="login-email">Email Address</label>
+          <input type="email" id="login-email" class="form-input" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" class="form-input" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-primary" id="login-btn">Sign In</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" onsubmit="handleRegister(event)" style="display: none;">
+        <div class="form-group">
+          <label for="reg-name">Full Name</label>
+          <input type="text" id="reg-name" class="form-input" placeholder="Jane Doe" required>
+        </div>
+        <div class="form-group">
+          <label for="reg-email">Email Address</label>
+          <input type="email" id="reg-email" class="form-input" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label for="reg-password">Password</label>
+          <input type="password" id="reg-password" class="form-input" placeholder="At least 6 characters" required minlength="6">
+        </div>
+        <div class="form-group">
+          <label for="reg-role">Account Type</label>
+          <select id="reg-role" class="form-select">
+            <option value="student">Student / Examinee</option>
+            <option value="admin">Admin / Proctor</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary" id="register-btn">Create Account</button>
+      </form>
+
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    // Tab switching utility
+    function switchTab(mode) {
+      const loginForm = document.getElementById('login-form');
+      const regForm = document.getElementById('register-form');
+      const toggleLogin = document.getElementById('toggle-login');
+      const toggleRegister = document.getElementById('toggle-register');
+      const alertArea = document.getElementById('auth-alert');
+
+      alertArea.style.display = 'none';
+
+      if (mode === 'login') {
+        loginForm.style.display = 'block';
+        regForm.style.display = 'none';
+        toggleLogin.classList.add('active');
+        toggleRegister.classList.remove('active');
+      } else {
+        loginForm.style.display = 'none';
+        regForm.style.display = 'block';
+        toggleLogin.classList.remove('active');
+        toggleRegister.classList.add('active');
+      }
+    }
+
+    // Direct redirection if token exists
+    window.addEventListener('DOMContentLoaded', () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        window.location.href = 'dashboard.html';
+      }
+    });
+  </script>
+</body>
+</html>

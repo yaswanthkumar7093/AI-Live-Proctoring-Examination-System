@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Live Proctoring Examination System - Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22 width=%22100%22 height=%22100%22><text y=%220.9em%22 font-size=%2290%22>🛡️</text></svg>">
+  <!-- Load TensorFlow.js and BlazeFace Model for client-side AI face recognition -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <nav class="dashboard-nav">
+    <div class="logo">
+      <span>🛡️</span> ProctorShield AI
+    </div>
+    <div class="nav-user">
+      <span id="user-display-name">Loading...</span>
+      <span id="user-display-role" class="user-badge">Student</span>
+      <button class="logout-btn" onclick="logout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <!-- Main Content Wrapper -->
+  <main class="dashboard-content">
+    
+    <!-- Dynamic Alert Area -->
+    <div id="dashboard-global-alert" style="display: none;"></div>
+
+    <!-- STUDENT DASHBOARD PANEL -->
+    <section id="student-panel" style="display: none;">
+      
+      <!-- List Exams Screen -->
+      <div id="student-exams-screen">
+        <h2 class="section-title">📝 Available Examinations</h2>
+        <div class="exams-grid" id="exams-list-container">
+          <!-- Populated dynamically via JS -->
+          <div class="empty-state">Loading examinations...</div>
+        </div>
+      </div>
+
+      <!-- Active Exam Screen (Webcam + Proctoring Active) -->
+      <div id="student-active-exam-screen" style="display: none;">
+        <div class="exam-layout">
+          
+          <!-- Exam Content -->
+          <div class="exam-main">
+            <div class="question-panel glass-panel">
+              <div class="exam-info-header">
+                <h2 id="active-exam-title">AI Ethics and Standards</h2>
+                <div class="exam-timer" id="exam-timer-display">⏱️ Remaining: --:--</div>
+              </div>
+              
+              <div class="quiz-question-box">
+                <h3 id="quiz-question-text">Question Loading...</h3>
+                <div class="option-container" id="quiz-options-container">
+                  <!-- Options filled dynamically -->
+                </div>
+              </div>
+
+              <div class="quiz-navigation" style="display: flex; justify-content: space-between; margin-top: 2rem;">
+                <button class="btn btn-secondary btn-inline" id="prev-question-btn" onclick="prevQuestion()" disabled>Previous</button>
+                <button class="btn btn-primary btn-inline" id="next-question-btn" onclick="nextQuestion()">Next Question</button>
+              </div>
+            </div>
+
+            <button class="btn btn-danger" onclick="submitActiveExam()">Submit and End Examination</button>
+          </div>
+
+          <!-- Proctoring Webcam Sidebar -->
+          <div class="proctor-sidebar">
+            <div class="glass-panel" style="padding: 1.5rem;">
+              <h3 style="margin-bottom: 1rem;">🛡️ Live AI Proctoring</h3>
+              
+              <!-- Video Webcam Box -->
+              <div class="camera-card" id="camera-card-element">
+                <video id="webcam" autoplay playsinline muted></video>
+                <canvas id="canvas-overlay"></canvas>
+                <div id="ai-status-indicator" class="detection-status status-active">
+                  <span id="ai-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: white; display: inline-block;"></span>
+                  <span id="ai-status-text">Starting AI...</span>
+                </div>
+              </div>
+
+              <div class="camera-instructions" style="margin-top: 1rem;">
+                <p style="margin-bottom: 0.5rem;"><strong>Instructions:</strong></p>
+                <ul style="padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                  <li>Remain centered in front of your camera.</li>
+                  <li>Do NOT switch browser tabs or minimize the page.</li>
+                  <li>Multiple faces or looking away will flag cheating alerts.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ADMIN DASHBOARD PANEL -->
+    <section id="admin-panel" style="display: none;">
+      
+      <div class="admin-header-actions">
+        <h1>Admin Control Panel</h1>
+        <button class="btn btn-primary btn-inline" onclick="openCreateExamModal()">➕ Create Exam</button>
+      </div>
+
+      <div class="admin-layout">
+        
+        <!-- Live Active Sessions Column -->
+        <div class="glass-panel">
+          <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span class="status-dot active"></span> Live Active Exam Sessions
+          </h2>
+          <div class="sessions-list" id="active-sessions-container">
+            <div class="empty-state">No student currently taking an exam.</div>
+          </div>
+        </div>
+
+        <!-- Cheating Alerts Feed Column -->
+        <div class="glass-panel" style="border-color: rgba(239, 68, 68, 0.2);">
+          <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem; color: #fca5a5; display: flex; align-items: center; gap: 0.5rem;">
+            ⚠️ Suspicious Activity Alerts
+          </h2>
+          <div class="alerts-list" id="active-alerts-container">
+            <div class="empty-state">No cheating alerts flagged.</div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Create Exam Modal (Admin Only) -->
+  <div class="modal-overlay" id="create-exam-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Create New Examination</h2>
+        <button class="modal-close" onclick="closeCreateExamModal()">&times;</button>
+      </div>
+      <form id="create-exam-form" onsubmit="handleCreateExam(event)">
+        <div class="form-group">
+          <label for="exam-title">Exam Title</label>
+          <input type="text" id="exam-title" class="form-input" placeholder="e.g. Midterm Physics" required>
+        </div>
+        <div class="form-group">
+          <label for="exam-desc">Description</label>
+          <textarea id="exam-desc" class="form-input" placeholder="Enter exam syllabus or instructions" style="height: 100px; resize: none;"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="exam-duration">Duration (in Minutes)</label>
+          <input type="number" id="exam-duration" class="form-input" placeholder="60" required min="1">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-inline" onclick="closeCreateExamModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-inline">Create Exam</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script src="js/proctor.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
