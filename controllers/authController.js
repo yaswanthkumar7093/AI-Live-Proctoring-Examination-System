@@ -88,7 +88,7 @@ export const register = async (req, res, next) => {
  */
 export const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
     // 1. Basic validation
     if (!email || !password) {
@@ -111,6 +111,11 @@ export const login = async (req, res, next) => {
     // Generic credentials error for security
     if (!user) {
       throw new ApiError(401, 'Invalid email or password.');
+    }
+
+    // Enforce selected account type matching
+    if (role && user.role !== role) {
+      throw new ApiError(401, `Invalid account type selected. You are registered as an ${user.role.toUpperCase()}.`);
     }
 
     // 3. Compare passwords

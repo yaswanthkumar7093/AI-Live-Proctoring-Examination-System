@@ -54,6 +54,7 @@ async function handleLogin(event) {
   event.preventDefault();
   const email = document.getElementById('login-email').value;
   const password = document.getElementById('login-password').value;
+  const role = document.getElementById('login-role').value;
   const loginBtn = document.getElementById('login-btn');
 
   loginBtn.disabled = true;
@@ -63,7 +64,7 @@ async function handleLogin(event) {
     const response = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, role }),
     });
 
     const data = await response.json();
