@@ -47,7 +47,7 @@ async function fetchActiveSessions() {
       const startTime = new Date(session.started_at).toLocaleTimeString();
 
       return `
-        <div class="session-item">
+        <div class="session-item" style="cursor: pointer;" onclick="viewSessionLogs('${session.id}', '${escapeJS(studentName)}')">
           <div>
             <div class="info-header">
               <span class="status-dot active" style="margin-right: 0.5rem; vertical-align: middle;"></span>
@@ -60,6 +60,7 @@ async function fetchActiveSessions() {
           </div>
           <div style="text-align: right;">
             <div style="font-weight: 600; font-size: 0.9rem;">Started at ${startTime}</div>
+            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #a78bfa; font-weight: 500;">Click to view logs 🔎</div>
           </div>
         </div>
       `;
@@ -100,7 +101,7 @@ async function fetchActiveAlerts() {
       const severityClass = `badge-${alert.severity || 'medium'}`;
 
       return `
-        <div class="alert-item" style="border-left: 4px solid ${getSeverityColor(alert.severity)};">
+        <div class="alert-item" style="border-left: 4px solid ${getSeverityColor(alert.severity)}; cursor: pointer;" onclick="viewSessionLogs('${alert.session_id}', '${escapeJS(student.name)}')">
           <div style="flex-grow: 1; margin-right: 1.5rem;">
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
               <span class="badge ${severityClass}">${escapeHTML(alert.severity)}</span>
@@ -113,8 +114,9 @@ async function fetchActiveAlerts() {
               <strong>Exam:</strong> ${escapeHTML(exam.title)} | <strong>Time:</strong> ${timestamp}
             </div>
           </div>
-          <div>
-            <button class="resolve-btn" onclick="resolveAlert('${alert.id}')">Resolve</button>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+            <button class="resolve-btn" onclick="event.stopPropagation(); resolveAlert('${alert.id}')">Resolve</button>
+            <span style="font-size: 0.75rem; color: #94a3b8;">Click to view timeline</span>
           </div>
         </div>
       `;
@@ -123,6 +125,64 @@ async function fetchActiveAlerts() {
   } catch (error) {
     console.error('Failed to fetch alerts:', error);
   }
+}
+
+// View Session logs in detail
+async function viewSessionLogs(sessionId, studentName) {
+  // Stop polling
+  clearInterval(adminPollInterval);
+
+  // Transition UI
+  document.getElementById('admin-main-screen').style.display = 'none';
+  document.getElementById('admin-logs-screen').style.display = 'block';
+  document.getElementById('admin-logs-title').innerText = `🔎 Examinee Activity Logs: ${studentName}`;
+
+  const token = localStorage.getItem('token');
+  const tableBody = document.getElementById('admin-logs-table-body');
+  tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px;">Fetching activity history...</td></tr>`;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/proctor/sessions/${sessionId}/logs`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message);
+    }
+
+    const logs = data.data;
+
+    if (!logs || logs.length === 0) {
+      tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: #a7f3d0;">No activity logs found for this session. All clear! 🟢</td></tr>`;
+      return;
+    }
+
+    tableBody.innerHTML = logs.map(log => {
+      const timestamp = new Date(log.timestamp).toLocaleTimeString();
+      const badgeClass = log.is_suspicious ? 'badge-high' : 'badge-low';
+      const statusText = log.is_suspicious ? '⚠️ SUSPICIOUS' : '🟢 NORMAL';
+      
+      return `
+        <tr style="border-bottom: 1px solid var(--glass-border); font-size: 0.95rem;">
+          <td style="padding: 12px; font-weight: 500;">${timestamp}</td>
+          <td style="padding: 12px; text-transform: uppercase; font-weight: 700; color: #a78bfa;">${escapeHTML(log.event_type)}</td>
+          <td style="padding: 12px;"><span class="badge ${badgeClass}">${statusText}</span></td>
+          <td style="padding: 12px; color: #cbd5e1;">${escapeHTML(log.details || 'N/A')}</td>
+        </tr>
+      `;
+    }).join('');
+
+  } catch (error) {
+    tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: #fca5a5;">Error fetching logs: ${error.message}</td></tr>`;
+  }
+}
+
+// Exit logs details view
+function exitLogsView() {
+  document.getElementById('admin-logs-screen').style.display = 'none';
+  document.getElementById('admin-main-screen').style.display = 'block';
+  initAdminDashboard();
 }
 
 // Resolve cheating alert

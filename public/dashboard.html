@@ -44,6 +44,9 @@
 
       <!-- Active Exam Screen (Webcam + Proctoring Active) -->
       <div id="student-active-exam-screen" style="display: none;">
+        <button class="btn btn-secondary btn-inline" onclick="confirmExitExam()" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; width: auto;">
+          ← Back to Exams
+        </button>
         <div class="exam-layout">
           
           <!-- Exam Content -->
@@ -104,33 +107,61 @@
     <!-- ADMIN DASHBOARD PANEL -->
     <section id="admin-panel" style="display: none;">
       
-      <div class="admin-header-actions">
-        <h1>Admin Control Panel</h1>
-        <button class="btn btn-primary btn-inline" onclick="openCreateExamModal()">➕ Create Exam</button>
+      <!-- Admin Main Control Panel Screen -->
+      <div id="admin-main-screen">
+        <div class="admin-header-actions">
+          <h1>Admin Control Panel</h1>
+          <button class="btn btn-primary btn-inline" onclick="openCreateExamModal()">➕ Create Exam</button>
+        </div>
+
+        <div class="admin-layout">
+          
+          <!-- Live Active Sessions Column -->
+          <div class="glass-panel">
+            <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              <span class="status-dot active"></span> Live Active Exam Sessions
+            </h2>
+            <div class="sessions-list" id="active-sessions-container">
+              <div class="empty-state">No student currently taking an exam.</div>
+            </div>
+          </div>
+
+          <!-- Cheating Alerts Feed Column -->
+          <div class="glass-panel" style="border-color: rgba(239, 68, 68, 0.2);">
+            <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem; color: #fca5a5; display: flex; align-items: center; gap: 0.5rem;">
+              ⚠️ Suspicious Activity Alerts
+            </h2>
+            <div class="alerts-list" id="active-alerts-container">
+              <div class="empty-state">No cheating alerts flagged.</div>
+            </div>
+          </div>
+
+        </div>
       </div>
 
-      <div class="admin-layout">
-        
-        <!-- Live Active Sessions Column -->
+      <!-- Admin Detailed Student Logs Screen -->
+      <div id="admin-logs-screen" style="display: none;">
+        <button class="btn btn-secondary btn-inline" onclick="exitLogsView()" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; width: auto;">
+          ← Back to Control Panel
+        </button>
         <div class="glass-panel">
-          <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-            <span class="status-dot active"></span> Live Active Exam Sessions
-          </h2>
-          <div class="sessions-list" id="active-sessions-container">
-            <div class="empty-state">No student currently taking an exam.</div>
+          <h2 id="admin-logs-title" style="font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem;">🔎 Examinee Activity Logs</h2>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;" id="admin-logs-table">
+              <thead>
+                <tr style="border-bottom: 2px solid var(--glass-border); padding-bottom: 10px;">
+                  <th style="padding: 10px;">Timestamp</th>
+                  <th style="padding: 10px;">Event Type</th>
+                  <th style="padding: 10px;">Status</th>
+                  <th style="padding: 10px;">Details</th>
+                </tr>
+              </thead>
+              <tbody id="admin-logs-table-body">
+                <!-- Renders dynamically -->
+              </tbody>
+            </table>
           </div>
         </div>
-
-        <!-- Cheating Alerts Feed Column -->
-        <div class="glass-panel" style="border-color: rgba(239, 68, 68, 0.2);">
-          <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 1.5rem; color: #fca5a5; display: flex; align-items: center; gap: 0.5rem;">
-            ⚠️ Suspicious Activity Alerts
-          </h2>
-          <div class="alerts-list" id="active-alerts-container">
-            <div class="empty-state">No cheating alerts flagged.</div>
-          </div>
-        </div>
-
       </div>
 
     </section>

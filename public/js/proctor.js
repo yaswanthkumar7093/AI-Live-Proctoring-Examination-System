@@ -485,3 +485,11 @@ function escapeJS(str) {
     }
   });
 }
+
+// Exit and go back to exams list
+function confirmExitExam() {
+  if (confirm("Are you sure you want to exit the exam? Your progress will be lost and this proctoring session will end.")) {
+    stopProctoring();
+    initStudentDashboard();
+  }
+}
