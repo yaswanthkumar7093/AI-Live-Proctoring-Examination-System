@@ -311,8 +311,23 @@ function startProctoringLoop() {
   proctorInterval = requestAnimationFrame(track);
 }
 
+// Alert throttling tracking to prevent consecutive frame database spam
+const lastAlertTimes = {
+  face_missing: 0,
+  multiple_faces: 0,
+  looking_away: 0,
+  tab_switch: 0
+};
+const ALERT_COOLDOWN_MS = 10000; // 10 seconds cooldown per event type
+
 // Trigger alert UI and log it
 function triggerCheatingAlert(eventType, description) {
+  const now = Date.now();
+  if (now - (lastAlertTimes[eventType] || 0) < ALERT_COOLDOWN_MS) {
+    return; // Skip reporting to avoid database and UI spam
+  }
+  lastAlertTimes[eventType] = now;
+
   // Flash red UI overlay
   const cameraCard = document.getElementById('camera-card-element');
   if (cameraCard) {
