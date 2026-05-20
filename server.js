@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes.js';
+import examRoutes from './routes/examRoutes.js';
+import proctorRoutes from './routes/proctorRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 // Load environment variables
@@ -31,6 +33,8 @@ app.get('/', (req, res) => {
 
 // Register API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/exams', examRoutes);
+app.use('/api/proctor', proctorRoutes);
 
 // 404 Route Not Found handler
 app.use(notFound);
