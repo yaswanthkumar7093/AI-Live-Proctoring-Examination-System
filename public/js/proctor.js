@@ -7,6 +7,8 @@ let activeExam = null;
 let currentQuestionIndex = 0;
 let examTimerInterval = null;
 let examTimeRemaining = 0; // in seconds
+let warningsCount = 0;
+const MAX_WARNINGS = 3;
 
 // Mock Quiz Questions Database
 const mockQuestions = [
@@ -133,7 +135,12 @@ async function confirmStartExam(examId, examTitle, durationMinutes) {
 
   // Initialize Quiz variables
   currentQuestionIndex = 0;
+  warningsCount = 0;
   activeExam = { id: examId, title: examTitle, duration: durationMinutes };
+  const warningBanner = document.getElementById('proctor-warning-banner');
+  if (warningBanner) {
+    warningBanner.style.display = 'none';
+  }
 
   // Turn on camera checking and load BlazeFace model
   try {
@@ -321,7 +328,7 @@ const lastAlertTimes = {
 const ALERT_COOLDOWN_MS = 10000; // 10 seconds cooldown per event type
 
 // Trigger alert UI and log it
-function triggerCheatingAlert(eventType, description) {
+async function triggerCheatingAlert(eventType, description) {
   const now = Date.now();
   if (now - (lastAlertTimes[eventType] || 0) < ALERT_COOLDOWN_MS) {
     return; // Skip reporting to avoid database and UI spam
@@ -335,7 +342,34 @@ function triggerCheatingAlert(eventType, description) {
     setTimeout(() => cameraCard.classList.remove('alerting'), 1000);
   }
 
-  sendProctorLog(eventType, description, true);
+  // Increment Warnings Count
+  warningsCount++;
+
+  // Update warnings banner UI on the student's screen
+  const warningBanner = document.getElementById('proctor-warning-banner');
+  const bannerTitle = document.getElementById('warning-banner-title');
+  const bannerDesc = document.getElementById('warning-banner-desc');
+
+  if (warningBanner && bannerTitle && bannerDesc) {
+    warningBanner.style.display = 'flex';
+    bannerTitle.innerText = `⚠️ Proctor Violation Warning (${warningsCount}/${MAX_WARNINGS})`;
+    
+    let formattedEvent = eventType.replace('_', ' ').toUpperCase();
+    bannerDesc.innerText = `Suspicious behavior detected: ${formattedEvent}. Please look straight at the camera. The examination will automatically terminate on ${MAX_WARNINGS} warnings.`;
+  }
+
+  // Append warning count directly into details for Admin visibility
+  const fullDetails = `${description} (Warning ${warningsCount}/${MAX_WARNINGS})`;
+
+  await sendProctorLog(eventType, fullDetails, true);
+
+  // If warning limit reached, auto-submit the exam session
+  if (warningsCount >= MAX_WARNINGS) {
+    setTimeout(async () => {
+      alert(`⚠️ EXAMINATION TERMINATED:\nYou have received ${warningsCount} proctoring warnings. Your exam session is being terminated and submitted automatically.`);
+      submitActiveExam();
+    }, 500);
+  }
 }
 
 // Visibility change (tab switching) listener
@@ -384,6 +418,12 @@ function stopProctoring() {
 
   clearInterval(examTimerInterval);
   activeSession = null;
+
+  // Hide warning banner
+  const warningBanner = document.getElementById('proctor-warning-banner');
+  if (warningBanner) {
+    warningBanner.style.display = 'none';
+  }
 }
 
 // Exam Timer Loop
