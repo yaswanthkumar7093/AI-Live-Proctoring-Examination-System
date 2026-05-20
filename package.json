@@ -2,7 +2,6 @@
   "name": "ai-live-proctoring-backend",
   "version": "1.0.0",
   "description": "Backend server for AI Live Proctoring Examination System",
-  "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
