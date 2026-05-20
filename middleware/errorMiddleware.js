@@ -31,7 +31,7 @@ export const errorHandler = (err, req, res, next) => {
   // Handle Supabase errors
   if (err.code && err.code.startsWith('PGRST')) {
     statusCode = 400;
-    message = 'Database query error.';
+    message = `Database query error: ${err.message || ''} ${err.details || ''}`.trim();
   }
 
   // Handle JWT errors
@@ -51,14 +51,15 @@ export const errorHandler = (err, req, res, next) => {
     message = err.message;
   }
 
-  // Log error in development
-  if (process.env.NODE_ENV === 'development') {
-    console.error('❌ Error:', {
-      message: err.message,
-      stack: err.stack,
-      statusCode,
-    });
-  }
+  // Log error unconditionally for visibility in Vercel logs
+  console.error('❌ Error details:', {
+    message: err.message,
+    code: err.code,
+    details: err.details,
+    hint: err.hint,
+    stack: err.stack,
+    statusCode,
+  });
 
   res.status(statusCode).json({
     success: false,
