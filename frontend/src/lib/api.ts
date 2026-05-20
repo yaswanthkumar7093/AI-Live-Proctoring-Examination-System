@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+// removed supabase import
 
 const getHeaders = () => {
   const token = localStorage.getItem('token');

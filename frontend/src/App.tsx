@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { supabase } from './lib/supabase';
+// removed supabase import
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { LiveExam } from './pages/LiveExam';
