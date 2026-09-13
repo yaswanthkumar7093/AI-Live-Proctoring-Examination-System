@@ -1,4 +1,7 @@
-import supabase from '../config/supabase.js';
+import connectDB from '../config/db.js';
+import ExamSession from '../models/ExamSession.js';
+import ProctoringLog from '../models/ProctoringLog.js';
+import Alert from '../models/Alert.js';
 import { ApiError } from '../middleware/errorMiddleware.js';
 
 /**
@@ -8,28 +11,22 @@ import { ApiError } from '../middleware/errorMiddleware.js';
  */
 export const createProctorLog = async (req, res, next) => {
   try {
+    await connectDB();
+
     const { session_id, event_type, details, is_suspicious = false } = req.body;
 
     if (!session_id || !event_type) {
       throw new ApiError(400, 'Please provide session_id and event_type.');
     }
 
-    // Verify session exists, belongs to the student, and is active
-    const { data: session, error: sessionError } = await supabase
-      .from('exam_sessions')
-      .select('id, user_id, status')
-      .eq('id', session_id)
-      .maybeSingle();
-
-    if (sessionError) {
-      throw sessionError;
-    }
+    // Verify session exists, belongs to student, and is active
+    const session = await ExamSession.findById(session_id);
 
     if (!session) {
       throw new ApiError(404, 'Exam session not found.');
     }
 
-    if (session.user_id !== req.user.id) {
+    if (session.user_id.toString() !== req.user.id.toString()) {
       throw new ApiError(403, 'Unauthorized to post logs to this session.');
     }
 
@@ -37,61 +34,61 @@ export const createProctorLog = async (req, res, next) => {
       throw new ApiError(400, 'Cannot post logs to a completed exam session.');
     }
 
-    // Create the proctoring log
-    const { data: log, error: logError } = await supabase
-      .from('proctoring_logs')
-      .insert([
-        {
-          session_id,
-          event_type,
-          details: details ? details.trim() : null,
-          is_suspicious,
-        },
-      ])
-      .select('*')
-      .single();
-
-    if (logError) {
-      throw logError;
-    }
+    // Create proctoring log
+    const log = await ProctoringLog.create({
+      session_id,
+      event_type,
+      details: details ? details.trim() : null,
+      is_suspicious,
+    });
 
     let alert = null;
 
-    // Automatically create a cheating alert if suspicious
+    // Auto-create cheating alert if suspicious
     if (is_suspicious) {
       let severity = 'medium';
-      if (event_type === 'face_missing' || event_type === 'multiple_faces' || event_type === 'webcam_disconnected') {
+      if (
+        event_type === 'face_missing' ||
+        event_type === 'multiple_faces' ||
+        event_type === 'webcam_disconnected'
+      ) {
         severity = 'high';
       } else if (event_type === 'tab_switch') {
         severity = 'low';
       }
 
-      const message = `Suspicious behavior flagged: ${event_type.replace('_', ' ')}.`;
+      const message = `Suspicious behavior flagged: ${event_type.replace(/_/g, ' ')}.`;
 
-      const { data: newAlert, error: alertError } = await supabase
-        .from('alerts')
-        .insert([
-          {
-            session_id,
-            log_id: log.id,
-            message,
-            severity,
-          },
-        ])
-        .select('*')
-        .single();
+      const newAlert = await Alert.create({
+        session_id,
+        log_id: log._id,
+        message,
+        severity,
+      });
 
-      if (alertError) {
-        throw alertError;
-      }
-      alert = newAlert;
+      alert = {
+        id: newAlert._id,
+        session_id: newAlert.session_id,
+        log_id: newAlert.log_id,
+        message: newAlert.message,
+        severity: newAlert.severity,
+        is_resolved: newAlert.is_resolved,
+        created_at: newAlert.created_at,
+      };
     }
 
     return res.status(201).json({
       success: true,
       message: 'Proctor log submitted successfully.',
       data: {
-        log,
+        log: {
+          id: log._id,
+          session_id: log.session_id,
+          event_type: log.event_type,
+          details: log.details,
+          is_suspicious: log.is_suspicious,
+          timestamp: log.timestamp,
+        },
         alert,
       },
     });
@@ -107,26 +104,30 @@ export const createProctorLog = async (req, res, next) => {
  */
 export const getActiveSessions = async (req, res, next) => {
   try {
-    // Select sessions with student and exam details
-    const { data: sessions, error } = await supabase
-      .from('exam_sessions')
-      .select(`
-        id,
-        status,
-        started_at,
-        users (id, name, email),
-        exams (id, title, duration)
-      `)
-      .eq('status', 'started')
-      .order('started_at', { ascending: false });
+    await connectDB();
 
-    if (error) {
-      throw error;
-    }
+    const sessions = await ExamSession.find({ status: 'started' })
+      .sort({ started_at: -1 })
+      .populate('user_id', 'id name email')
+      .populate('exam_id', 'id title duration')
+      .lean();
+
+    // Shape response to match the frontend's expected structure
+    const formatted = sessions.map((s) => ({
+      id: s._id,
+      status: s.status,
+      started_at: s.started_at,
+      users: s.user_id
+        ? { id: s.user_id._id, name: s.user_id.name, email: s.user_id.email }
+        : null,
+      exams: s.exam_id
+        ? { id: s.exam_id._id, title: s.exam_id.title, duration: s.exam_id.duration }
+        : null,
+    }));
 
     return res.status(200).json({
       success: true,
-      data: sessions,
+      data: formatted,
     });
   } catch (error) {
     next(error);
@@ -140,21 +141,24 @@ export const getActiveSessions = async (req, res, next) => {
  */
 export const getSessionLogs = async (req, res, next) => {
   try {
+    await connectDB();
+
     const sessionId = req.params.id;
 
-    const { data: logs, error } = await supabase
-      .from('proctoring_logs')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('timestamp', { ascending: true });
-
-    if (error) {
-      throw error;
-    }
+    const logs = await ProctoringLog.find({ session_id: sessionId })
+      .sort({ timestamp: 1 })
+      .lean();
 
     return res.status(200).json({
       success: true,
-      data: logs,
+      data: logs.map((l) => ({
+        id: l._id,
+        session_id: l.session_id,
+        event_type: l.event_type,
+        details: l.details,
+        is_suspicious: l.is_suspicious,
+        timestamp: l.timestamp,
+      })),
     });
   } catch (error) {
     next(error);
@@ -168,51 +172,65 @@ export const getSessionLogs = async (req, res, next) => {
  */
 export const getAlerts = async (req, res, next) => {
   try {
-    const { data: alerts, error } = await supabase
-      .from('alerts')
-      .select(`
-        id,
-        message,
-        severity,
-        is_resolved,
-        created_at,
-        exam_sessions (
-          id,
-          status,
-          completed_at,
-          users (id, name, email),
-          exams (id, title)
-        ),
-        proctoring_logs (
-          id,
-          event_type,
-          details,
-          timestamp
-        )
-      `)
-      .eq('is_resolved', false)
-      .order('created_at', { ascending: false });
+    await connectDB();
 
-    if (error) {
-      throw error;
-    }
+    const alerts = await Alert.find({ is_resolved: false })
+      .sort({ created_at: -1 })
+      .populate({
+        path: 'session_id',
+        select: 'status completed_at user_id exam_id',
+        populate: [
+          { path: 'user_id', select: 'name email' },
+          { path: 'exam_id', select: 'title' },
+        ],
+      })
+      .populate('log_id', 'event_type details timestamp')
+      .lean();
 
-    // Filter out alerts where the session has been completed for more than 30 minutes
+    // Filter out alerts where exam completed more than 30 minutes ago
     const now = new Date();
-    const activeAlerts = alerts.filter(alert => {
-      const session = alert.exam_sessions;
+    const activeAlerts = alerts.filter((alert) => {
+      const session = alert.session_id;
       if (session && session.status === 'completed' && session.completed_at) {
-        const completedTime = new Date(session.completed_at);
-        const diffMs = now.getTime() - completedTime.getTime();
-        const diffMinutes = diffMs / (1000 * 60);
-        return diffMinutes <= 30; // Only keep alerts if exam completed within the last 30 minutes
+        const diffMinutes = (now - new Date(session.completed_at)) / (1000 * 60);
+        return diffMinutes <= 30;
       }
-      return true; // Keep alerts for active/in-progress sessions
+      return true;
+    });
+
+    // Shape to match Supabase-style nested structure the frontend expects
+    const formatted = activeAlerts.map((alert) => {
+      const session = alert.session_id || {};
+      const user = session.user_id || {};
+      const exam = session.exam_id || {};
+      const log = alert.log_id || {};
+
+      return {
+        id: alert._id,
+        message: alert.message,
+        severity: alert.severity,
+        is_resolved: alert.is_resolved,
+        created_at: alert.created_at,
+        session_id: session._id || null,
+        exam_sessions: {
+          id: session._id,
+          status: session.status,
+          completed_at: session.completed_at,
+          users: { id: user._id, name: user.name, email: user.email },
+          exams: { id: exam._id, title: exam.title },
+        },
+        proctoring_logs: {
+          id: log._id,
+          event_type: log.event_type,
+          details: log.details,
+          timestamp: log.timestamp,
+        },
+      };
     });
 
     return res.status(200).json({
       success: true,
-      data: activeAlerts,
+      data: formatted,
     });
   } catch (error) {
     next(error);
@@ -226,18 +244,15 @@ export const getAlerts = async (req, res, next) => {
  */
 export const resolveAlert = async (req, res, next) => {
   try {
+    await connectDB();
+
     const alertId = req.params.id;
 
-    const { data: alert, error } = await supabase
-      .from('alerts')
-      .update({ is_resolved: true })
-      .eq('id', alertId)
-      .select('*')
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
+    const alert = await Alert.findByIdAndUpdate(
+      alertId,
+      { is_resolved: true },
+      { new: true }
+    );
 
     if (!alert) {
       throw new ApiError(404, 'Alert not found.');
@@ -246,7 +261,13 @@ export const resolveAlert = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Alert marked as resolved.',
-      data: alert,
+      data: {
+        id: alert._id,
+        message: alert.message,
+        severity: alert.severity,
+        is_resolved: alert.is_resolved,
+        created_at: alert.created_at,
+      },
     });
   } catch (error) {
     next(error);

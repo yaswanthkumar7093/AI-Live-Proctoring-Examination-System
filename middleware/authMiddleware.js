@@ -1,10 +1,9 @@
 import jwt from 'jsonwebtoken';
-import supabase from '../config/supabase.js';
+import connectDB from '../config/db.js';
+import User from '../models/User.js';
 
 /**
  * Middleware to authenticate requests using JWT.
- * Extracts token from Authorization header, verifies it,
- * and attaches the user object to req.user.
  */
 export const authenticate = async (req, res, next) => {
   try {
@@ -26,25 +25,29 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
-    // Verify the token
+    // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Fetch user from database to ensure they still exist
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, name, email, role, created_at')
-      .eq('id', decoded.id)
-      .single();
+    // Fetch user from MongoDB
+    await connectDB();
+    const user = await User.findById(decoded.id).select('-password').lean();
 
-    if (error || !user) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'Token is valid but user no longer exists.',
       });
     }
 
-    // Attach user to request object
-    req.user = user;
+    // Attach normalised user to request
+    req.user = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      created_at: user.created_at,
+    };
+
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -69,11 +72,8 @@ export const authenticate = async (req, res, next) => {
 };
 
 /**
- * Middleware for role-based access control.
- * Accepts an array of allowed roles and checks if the
- * authenticated user's role is included.
- *
- * @param  {...string} roles - Allowed roles (e.g., 'admin', 'student')
+ * Role-based access control middleware.
+ * @param {...string} roles - Allowed roles (e.g., 'admin', 'student')
  */
 export const authorize = (...roles) => {
   return (req, res, next) => {

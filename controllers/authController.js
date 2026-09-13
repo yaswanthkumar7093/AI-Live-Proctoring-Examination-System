@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import supabase from '../config/supabase.js';
+import connectDB from '../config/db.js';
+import User from '../models/User.js';
 import { ApiError } from '../middleware/errorMiddleware.js';
 
 /**
@@ -9,6 +10,8 @@ import { ApiError } from '../middleware/errorMiddleware.js';
  */
 export const register = async (req, res, next) => {
   try {
+    await connectDB();
+
     const { name, email, password, role = 'student' } = req.body;
 
     // 1. Basic validation
@@ -16,18 +19,15 @@ export const register = async (req, res, next) => {
       throw new ApiError(400, 'Please provide name, email, and password.');
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       throw new ApiError(400, 'Please provide a valid email address.');
     }
 
-    // Validate password length
     if (password.length < 6) {
       throw new ApiError(400, 'Password must be at least 6 characters long.');
     }
 
-    // Validate role
     if (role !== 'student' && role !== 'admin') {
       throw new ApiError(400, "Role must be either 'student' or 'admin'.");
     }
@@ -35,16 +35,7 @@ export const register = async (req, res, next) => {
     const normalizedEmail = email.toLowerCase().trim();
 
     // 2. Check if user already exists
-    const { data: existingUser, error: checkError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', normalizedEmail)
-      .maybeSingle();
-
-    if (checkError) {
-      throw checkError;
-    }
-
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       throw new ApiError(400, 'Email is already registered.');
     }
@@ -53,31 +44,31 @@ export const register = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. Create user in Supabase users table
-    const { data: newUser, error: insertError } = await supabase
-      .from('users')
-      .insert([
-        {
-          name: name.trim(),
-          email: normalizedEmail,
-          password: hashedPassword,
-          role,
-        },
-      ])
-      .select('id, name, email, role, created_at')
-      .single();
+    // 4. Create user
+    const newUser = await User.create({
+      name: name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      role,
+    });
 
-    if (insertError) {
-      throw insertError;
-    }
-
-    // 5. Respond with user info
+    // 5. Respond (exclude password)
     return res.status(201).json({
       success: true,
       message: 'User registered successfully.',
-      data: newUser,
+      data: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        created_at: newUser.created_at,
+      },
     });
   } catch (error) {
+    // Handle Mongoose duplicate key error
+    if (error.code === 11000) {
+      return next(new ApiError(400, 'Email is already registered.'));
+    }
     next(error);
   }
 };
@@ -88,56 +79,50 @@ export const register = async (req, res, next) => {
  */
 export const login = async (req, res, next) => {
   try {
+    await connectDB();
+
     const { email, password, role } = req.body;
 
-    // 1. Basic validation
     if (!email || !password) {
       throw new ApiError(400, 'Please provide email and password.');
     }
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // 2. Fetch user from Supabase users table
-    const { data: user, error: fetchError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', normalizedEmail)
-      .maybeSingle();
+    // Fetch user (include password for comparison)
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
 
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    // Generic credentials error for security
     if (!user) {
       throw new ApiError(401, 'Invalid email or password.');
     }
 
-    // Enforce selected account type matching
+    // Enforce role match if provided
     if (role && user.role !== role) {
-      throw new ApiError(401, `Invalid account type selected. You are registered as an ${user.role.toUpperCase()}.`);
+      throw new ApiError(
+        401,
+        `Invalid account type selected. You are registered as an ${user.role.toUpperCase()}.`
+      );
     }
 
-    // 3. Compare passwords
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       throw new ApiError(401, 'Invalid email or password.');
     }
 
-    // 4. Generate JWT
+    // Generate JWT
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user._id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
-    // 5. Respond with token and user details
     return res.status(200).json({
       success: true,
       message: 'Login successful.',
       token,
       user: {
-        id: user.id,
+        id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -155,7 +140,6 @@ export const login = async (req, res, next) => {
  */
 export const getProfile = async (req, res, next) => {
   try {
-    // req.user is set by the authenticate middleware
     return res.status(200).json({
       success: true,
       data: req.user,

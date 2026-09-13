@@ -1,4 +1,6 @@
-import supabase from '../config/supabase.js';
+import connectDB from '../config/db.js';
+import Exam from '../models/Exam.js';
+import ExamSession from '../models/ExamSession.js';
 import { ApiError } from '../middleware/errorMiddleware.js';
 
 /**
@@ -8,6 +10,8 @@ import { ApiError } from '../middleware/errorMiddleware.js';
  */
 export const createExam = async (req, res, next) => {
   try {
+    await connectDB();
+
     const { title, description, duration } = req.body;
 
     if (!title || !duration) {
@@ -19,27 +23,24 @@ export const createExam = async (req, res, next) => {
       throw new ApiError(400, 'Duration must be a positive integer.');
     }
 
-    const { data: exam, error } = await supabase
-      .from('exams')
-      .insert([
-        {
-          title: title.trim(),
-          description: description ? description.trim() : null,
-          duration: parsedDuration,
-          created_by: req.user.id,
-        },
-      ])
-      .select('*')
-      .single();
-
-    if (error) {
-      throw error;
-    }
+    const exam = await Exam.create({
+      title: title.trim(),
+      description: description ? description.trim() : null,
+      duration: parsedDuration,
+      created_by: req.user.id,
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Exam created successfully.',
-      data: exam,
+      data: {
+        id: exam._id,
+        title: exam.title,
+        description: exam.description,
+        duration: exam.duration,
+        created_by: exam.created_by,
+        created_at: exam.created_at,
+      },
     });
   } catch (error) {
     next(error);
@@ -53,18 +54,20 @@ export const createExam = async (req, res, next) => {
  */
 export const getExams = async (req, res, next) => {
   try {
-    const { data: exams, error } = await supabase
-      .from('exams')
-      .select('*')
-      .order('created_at', { ascending: false });
+    await connectDB();
 
-    if (error) {
-      throw error;
-    }
+    const exams = await Exam.find().sort({ created_at: -1 }).lean();
 
     return res.status(200).json({
       success: true,
-      data: exams,
+      data: exams.map((e) => ({
+        id: e._id,
+        title: e.title,
+        description: e.description,
+        duration: e.duration,
+        created_by: e.created_by,
+        created_at: e.created_at,
+      })),
     });
   } catch (error) {
     next(error);
@@ -78,50 +81,50 @@ export const getExams = async (req, res, next) => {
  */
 export const startExam = async (req, res, next) => {
   try {
+    await connectDB();
+
     const examId = req.params.id;
 
     // Verify exam exists
-    const { data: exam, error: checkError } = await supabase
-      .from('exams')
-      .select('id')
-      .eq('id', examId)
-      .maybeSingle();
-
-    if (checkError) {
-      throw checkError;
-    }
-
+    const exam = await Exam.findById(examId);
     if (!exam) {
       throw new ApiError(404, 'Exam not found.');
     }
 
-    // Insert active session
-    const { data: session, error } = await supabase
-      .from('exam_sessions')
-      .insert([
-        {
-          user_id: req.user.id,
-          exam_id: examId,
-          status: 'started',
-        },
-      ])
-      .select('*')
-      .single();
+    // Check for existing active session
+    const existingSession = await ExamSession.findOne({
+      user_id: req.user.id,
+      exam_id: examId,
+      status: 'started',
+    });
 
-    if (error) {
-      // Catch unique constraint violation (active session already exists)
-      if (error.code === '23505') {
-        throw new ApiError(400, 'You already have an active session for this exam.');
-      }
-      throw error;
+    if (existingSession) {
+      throw new ApiError(400, 'You already have an active session for this exam.');
     }
+
+    const session = await ExamSession.create({
+      user_id: req.user.id,
+      exam_id: examId,
+      status: 'started',
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Exam session started successfully.',
-      data: session,
+      data: {
+        id: session._id,
+        user_id: session.user_id,
+        exam_id: session.exam_id,
+        status: session.status,
+        started_at: session.started_at,
+        completed_at: session.completed_at,
+      },
     });
   } catch (error) {
+    // Handle Mongoose duplicate key (unique index)
+    if (error.code === 11000) {
+      return next(new ApiError(400, 'You already have an active session for this exam.'));
+    }
     next(error);
   }
 };
@@ -133,24 +136,22 @@ export const startExam = async (req, res, next) => {
  */
 export const submitExam = async (req, res, next) => {
   try {
+    await connectDB();
+
     const examId = req.params.id;
 
-    // Find and update active session
-    const { data: session, error } = await supabase
-      .from('exam_sessions')
-      .update({
+    const session = await ExamSession.findOneAndUpdate(
+      {
+        user_id: req.user.id,
+        exam_id: examId,
+        status: 'started',
+      },
+      {
         status: 'completed',
-        completed_at: new Date().toISOString(),
-      })
-      .eq('user_id', req.user.id)
-      .eq('exam_id', examId)
-      .eq('status', 'started')
-      .select('*')
-      .maybeSingle();
-
-    if (error) {
-      throw error;
-    }
+        completed_at: new Date(),
+      },
+      { new: true }
+    );
 
     if (!session) {
       throw new ApiError(404, 'No active exam session found to submit.');
@@ -159,7 +160,14 @@ export const submitExam = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Exam session submitted successfully.',
-      data: session,
+      data: {
+        id: session._id,
+        user_id: session.user_id,
+        exam_id: session.exam_id,
+        status: session.status,
+        started_at: session.started_at,
+        completed_at: session.completed_at,
+      },
     });
   } catch (error) {
     next(error);
