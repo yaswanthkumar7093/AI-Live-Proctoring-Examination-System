@@ -1,7 +1,7 @@
 {
   "name": "ai-proctoring-backend",
-  "version": "2.0.0",
-  "description": "Backend server for AI Live Proctoring Examination System (MongoDB edition)",
+  "version": "3.0.0",
+  "description": "Backend server for AI Live Proctoring Examination System (Neon PostgreSQL edition)",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -15,19 +15,19 @@
     "backend",
     "nodejs",
     "express",
-    "mongodb",
-    "mongoose",
+    "neon",
+    "postgresql",
     "jwt"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
-    "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.6.3"
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

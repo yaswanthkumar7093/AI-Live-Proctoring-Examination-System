@@ -1,42 +1,14 @@
-import mongoose from 'mongoose';
+import { neon } from '@neondatabase/serverless';
+import dotenv from 'dotenv';
 
-// Serverless-safe connection caching
-let cached = global.mongoose;
-if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
+dotenv.config();
+
+if (!process.env.DATABASE_URL) {
+  console.error('❌ DATABASE_URL is not defined in environment variables.');
+  process.exit(1);
 }
 
-const connectDB = async () => {
-  if (cached.conn) {
-    return cached.conn;
-  }
+// Neon HTTP client — zero IP restrictions, works natively with Vercel serverless
+const sql = neon(process.env.DATABASE_URL);
 
-  if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-      serverSelectionTimeoutMS: 10000,
-    };
-
-    const uri = process.env.MONGODB_URI;
-    if (!uri) {
-      console.error('❌ MONGODB_URI is not defined in environment variables.');
-      process.exit(1);
-    }
-
-    cached.promise = mongoose.connect(uri, opts).then((mongooseInstance) => {
-      console.log('✅ MongoDB connected successfully.');
-      return mongooseInstance;
-    });
-  }
-
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
-
-  return cached.conn;
-};
-
-export default connectDB;
+export default sql;

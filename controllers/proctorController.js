@@ -1,18 +1,13 @@
-import connectDB from '../config/db.js';
-import ExamSession from '../models/ExamSession.js';
-import ProctoringLog from '../models/ProctoringLog.js';
-import Alert from '../models/Alert.js';
+import sql from '../config/db.js';
 import { ApiError } from '../middleware/errorMiddleware.js';
 
 /**
- * Submit a webcam/proctor log from student client
+ * Submit a webcam/proctor log
  * POST /api/proctor/log
  * Access: Student only
  */
 export const createProctorLog = async (req, res, next) => {
   try {
-    await connectDB();
-
     const { session_id, event_type, details, is_suspicious = false } = req.body;
 
     if (!session_id || !event_type) {
@@ -20,38 +15,32 @@ export const createProctorLog = async (req, res, next) => {
     }
 
     // Verify session exists, belongs to student, and is active
-    const session = await ExamSession.findById(session_id);
+    const [session] = await sql`
+      SELECT id, user_id, status FROM exam_sessions WHERE id = ${session_id}
+    `;
 
-    if (!session) {
-      throw new ApiError(404, 'Exam session not found.');
-    }
-
-    if (session.user_id.toString() !== req.user.id.toString()) {
-      throw new ApiError(403, 'Unauthorized to post logs to this session.');
-    }
-
-    if (session.status !== 'started') {
-      throw new ApiError(400, 'Cannot post logs to a completed exam session.');
-    }
+    if (!session) throw new ApiError(404, 'Exam session not found.');
+    if (session.user_id !== req.user.id) throw new ApiError(403, 'Unauthorized to post logs to this session.');
+    if (session.status !== 'started') throw new ApiError(400, 'Cannot post logs to a completed exam session.');
 
     // Create proctoring log
-    const log = await ProctoringLog.create({
-      session_id,
-      event_type,
-      details: details ? details.trim() : null,
-      is_suspicious,
-    });
+    const [log] = await sql`
+      INSERT INTO proctoring_logs (session_id, event_type, details, is_suspicious)
+      VALUES (
+        ${session_id},
+        ${event_type},
+        ${details ? details.trim() : null},
+        ${is_suspicious}
+      )
+      RETURNING *
+    `;
 
     let alert = null;
 
-    // Auto-create cheating alert if suspicious
+    // Auto-create alert if suspicious
     if (is_suspicious) {
       let severity = 'medium';
-      if (
-        event_type === 'face_missing' ||
-        event_type === 'multiple_faces' ||
-        event_type === 'webcam_disconnected'
-      ) {
+      if (['face_missing', 'multiple_faces', 'webcam_disconnected'].includes(event_type)) {
         severity = 'high';
       } else if (event_type === 'tab_switch') {
         severity = 'low';
@@ -59,38 +48,18 @@ export const createProctorLog = async (req, res, next) => {
 
       const message = `Suspicious behavior flagged: ${event_type.replace(/_/g, ' ')}.`;
 
-      const newAlert = await Alert.create({
-        session_id,
-        log_id: log._id,
-        message,
-        severity,
-      });
-
-      alert = {
-        id: newAlert._id,
-        session_id: newAlert.session_id,
-        log_id: newAlert.log_id,
-        message: newAlert.message,
-        severity: newAlert.severity,
-        is_resolved: newAlert.is_resolved,
-        created_at: newAlert.created_at,
-      };
+      const [newAlert] = await sql`
+        INSERT INTO alerts (session_id, log_id, message, severity)
+        VALUES (${session_id}, ${log.id}, ${message}, ${severity})
+        RETURNING *
+      `;
+      alert = newAlert;
     }
 
     return res.status(201).json({
       success: true,
       message: 'Proctor log submitted successfully.',
-      data: {
-        log: {
-          id: log._id,
-          session_id: log.session_id,
-          event_type: log.event_type,
-          details: log.details,
-          is_suspicious: log.is_suspicious,
-          timestamp: log.timestamp,
-        },
-        alert,
-      },
+      data: { log, alert },
     });
   } catch (error) {
     next(error);
@@ -104,31 +73,25 @@ export const createProctorLog = async (req, res, next) => {
  */
 export const getActiveSessions = async (req, res, next) => {
   try {
-    await connectDB();
+    const sessions = await sql`
+      SELECT
+        es.id,
+        es.status,
+        es.started_at,
+        json_build_object(
+          'id', u.id, 'name', u.name, 'email', u.email
+        ) AS users,
+        json_build_object(
+          'id', e.id, 'title', e.title, 'duration', e.duration
+        ) AS exams
+      FROM exam_sessions es
+      JOIN users u ON u.id = es.user_id
+      JOIN exams e ON e.id = es.exam_id
+      WHERE es.status = 'started'
+      ORDER BY es.started_at DESC
+    `;
 
-    const sessions = await ExamSession.find({ status: 'started' })
-      .sort({ started_at: -1 })
-      .populate('user_id', 'id name email')
-      .populate('exam_id', 'id title duration')
-      .lean();
-
-    // Shape response to match the frontend's expected structure
-    const formatted = sessions.map((s) => ({
-      id: s._id,
-      status: s.status,
-      started_at: s.started_at,
-      users: s.user_id
-        ? { id: s.user_id._id, name: s.user_id.name, email: s.user_id.email }
-        : null,
-      exams: s.exam_id
-        ? { id: s.exam_id._id, title: s.exam_id.title, duration: s.exam_id.duration }
-        : null,
-    }));
-
-    return res.status(200).json({
-      success: true,
-      data: formatted,
-    });
+    return res.status(200).json({ success: true, data: sessions });
   } catch (error) {
     next(error);
   }
@@ -141,25 +104,13 @@ export const getActiveSessions = async (req, res, next) => {
  */
 export const getSessionLogs = async (req, res, next) => {
   try {
-    await connectDB();
+    const logs = await sql`
+      SELECT * FROM proctoring_logs
+      WHERE session_id = ${req.params.id}
+      ORDER BY timestamp ASC
+    `;
 
-    const sessionId = req.params.id;
-
-    const logs = await ProctoringLog.find({ session_id: sessionId })
-      .sort({ timestamp: 1 })
-      .lean();
-
-    return res.status(200).json({
-      success: true,
-      data: logs.map((l) => ({
-        id: l._id,
-        session_id: l.session_id,
-        event_type: l.event_type,
-        details: l.details,
-        is_suspicious: l.is_suspicious,
-        timestamp: l.timestamp,
-      })),
-    });
+    return res.status(200).json({ success: true, data: logs });
   } catch (error) {
     next(error);
   }
@@ -172,66 +123,47 @@ export const getSessionLogs = async (req, res, next) => {
  */
 export const getAlerts = async (req, res, next) => {
   try {
-    await connectDB();
+    const alerts = await sql`
+      SELECT
+        a.id,
+        a.message,
+        a.severity,
+        a.is_resolved,
+        a.created_at,
+        a.session_id,
+        json_build_object(
+          'id',           es.id,
+          'status',       es.status,
+          'completed_at', es.completed_at,
+          'users',        json_build_object('id', u.id, 'name', u.name, 'email', u.email),
+          'exams',        json_build_object('id', e.id, 'title', e.title)
+        ) AS exam_sessions,
+        json_build_object(
+          'id',         pl.id,
+          'event_type', pl.event_type,
+          'details',    pl.details,
+          'timestamp',  pl.timestamp
+        ) AS proctoring_logs
+      FROM alerts a
+      JOIN exam_sessions es ON es.id = a.session_id
+      JOIN users u  ON u.id  = es.user_id
+      JOIN exams e  ON e.id  = es.exam_id
+      LEFT JOIN proctoring_logs pl ON pl.id = a.log_id
+      WHERE a.is_resolved = false
+      ORDER BY a.created_at DESC
+    `;
 
-    const alerts = await Alert.find({ is_resolved: false })
-      .sort({ created_at: -1 })
-      .populate({
-        path: 'session_id',
-        select: 'status completed_at user_id exam_id',
-        populate: [
-          { path: 'user_id', select: 'name email' },
-          { path: 'exam_id', select: 'title' },
-        ],
-      })
-      .populate('log_id', 'event_type details timestamp')
-      .lean();
-
-    // Filter out alerts where exam completed more than 30 minutes ago
-    const now = new Date();
-    const activeAlerts = alerts.filter((alert) => {
-      const session = alert.session_id;
-      if (session && session.status === 'completed' && session.completed_at) {
-        const diffMinutes = (now - new Date(session.completed_at)) / (1000 * 60);
-        return diffMinutes <= 30;
+    // Filter: drop alerts where exam completed more than 30 minutes ago
+    const now = Date.now();
+    const active = alerts.filter((a) => {
+      const s = a.exam_sessions;
+      if (s?.status === 'completed' && s?.completed_at) {
+        return (now - new Date(s.completed_at).getTime()) / 60000 <= 30;
       }
       return true;
     });
 
-    // Shape to match Supabase-style nested structure the frontend expects
-    const formatted = activeAlerts.map((alert) => {
-      const session = alert.session_id || {};
-      const user = session.user_id || {};
-      const exam = session.exam_id || {};
-      const log = alert.log_id || {};
-
-      return {
-        id: alert._id,
-        message: alert.message,
-        severity: alert.severity,
-        is_resolved: alert.is_resolved,
-        created_at: alert.created_at,
-        session_id: session._id || null,
-        exam_sessions: {
-          id: session._id,
-          status: session.status,
-          completed_at: session.completed_at,
-          users: { id: user._id, name: user.name, email: user.email },
-          exams: { id: exam._id, title: exam.title },
-        },
-        proctoring_logs: {
-          id: log._id,
-          event_type: log.event_type,
-          details: log.details,
-          timestamp: log.timestamp,
-        },
-      };
-    });
-
-    return res.status(200).json({
-      success: true,
-      data: formatted,
-    });
+    return res.status(200).json({ success: true, data: active });
   } catch (error) {
     next(error);
   }
@@ -244,30 +176,18 @@ export const getAlerts = async (req, res, next) => {
  */
 export const resolveAlert = async (req, res, next) => {
   try {
-    await connectDB();
+    const [alert] = await sql`
+      UPDATE alerts SET is_resolved = true
+      WHERE id = ${req.params.id}
+      RETURNING *
+    `;
 
-    const alertId = req.params.id;
-
-    const alert = await Alert.findByIdAndUpdate(
-      alertId,
-      { is_resolved: true },
-      { new: true }
-    );
-
-    if (!alert) {
-      throw new ApiError(404, 'Alert not found.');
-    }
+    if (!alert) throw new ApiError(404, 'Alert not found.');
 
     return res.status(200).json({
       success: true,
       message: 'Alert marked as resolved.',
-      data: {
-        id: alert._id,
-        message: alert.message,
-        severity: alert.severity,
-        is_resolved: alert.is_resolved,
-        created_at: alert.created_at,
-      },
+      data: alert,
     });
   } catch (error) {
     next(error);
